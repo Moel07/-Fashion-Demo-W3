@@ -828,6 +828,236 @@ render();
      }catch(err){ console.error("Stok:", err); }
    }
    muatStok();
+   /* ===== DASHBOARD St@yLE (Tahap 4) — data dari Supabase ===== */
+(function(){
+  const css = `
+.dash-note{margin-top:1rem;display:inline-block;font-size:.78rem;color:var(--muted);background:var(--blush);border-radius:999px;padding:.3rem .8rem}
+.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem}
+@media(min-width:900px){.kpis{grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem}}
+.kpi{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:1rem 1.1rem;min-width:0}
+.kpi .lbl{font-size:.72rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.kpi .val{font-family:var(--f-display);font-size:clamp(1.5rem,4vw,2.1rem);color:var(--ink);margin-top:.35rem;font-variant-numeric:tabular-nums;line-height:1.1;overflow-wrap:anywhere}
+.kpi .sub{font-size:.8rem;color:var(--muted);margin-top:.25rem}
+.dash-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:1rem;margin-top:1rem}
+.tb-wrap{overflow-x:auto}
+@media(min-width:900px){.dash-grid.two{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);align-items:start}}
+.panel{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:1.2rem 1.1rem;min-width:0}
+.panel h3{font-size:1.35rem;color:var(--espresso)}
+.panel .hint{font-size:.82rem;color:var(--muted);margin-top:.25rem}
+.chart-wrap{position:relative;margin-top:1rem}
+.chart-wrap svg{display:block;width:100%;height:auto;overflow:visible}
+.ax{font-size:10px;fill:#8A7A6F;font-family:var(--f-body)}
+.grid-l{stroke:#EFE6DC;stroke-width:1}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);font-size:.78rem;padding:.4rem .6rem;border-radius:8px;white-space:nowrap;transform:translate(-50%,-110%);opacity:0;visibility:hidden;transition:opacity .12s}
+.tip.on{opacity:1;visibility:visible}
+.legend{display:flex;gap:1rem;flex-wrap:wrap;font-size:.8rem;color:var(--muted);margin-top:.75rem}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:.35rem;vertical-align:-1px}
+.insight{margin-top:1rem;padding:.9rem 1rem;border-radius:var(--r);background:#F3ECF7;color:var(--ink);font-size:.92rem}
+.insight b{color:var(--espresso)}
+.aksi{margin-top:.75rem;padding:.9rem 1rem;border-radius:var(--r);background:var(--blush);font-size:.92rem}
+.aksi .lbl{font-size:.7rem;font-weight:700;letter-spacing:.14em;color:var(--terra-dark);text-transform:uppercase;display:block;margin-bottom:.2rem}
+.stok-tb{width:100%;min-width:0;border-collapse:collapse;margin-top:.75rem;font-size:.88rem}
+.stok-tb th{background:none}
+.stok-tb th{text-align:left;font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:.4rem .3rem;border-bottom:1px solid var(--line)}
+.stok-tb td{padding:.55rem .3rem;border-bottom:1px solid #F1E9E0}
+.stok-tb td.n{text-align:right;font-variant-numeric:tabular-nums}
+.st{font-size:.75rem;font-weight:600;padding:.15rem .5rem;border-radius:999px;white-space:nowrap}
+.st.habis{background:#FBE3E0;color:#9B2C22}
+.st.tipis{background:#FCEFD6;color:#8A5A0B}
+.kota-row{display:grid;grid-template-columns:5.5rem 1fr 2.5rem;align-items:center;gap:.6rem;margin-top:.6rem;font-size:.86rem}
+.kota-bar{height:10px;background:#F1E9E0;border-radius:999px;overflow:hidden}
+.kota-bar span{display:block;height:100%;background:var(--espresso);border-radius:999px}
+.kota-row .n{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+.dash-table summary{cursor:pointer;font-size:.82rem;color:var(--terra-dark);margin-top:.75rem}
+.dash-msg{padding:1rem 0;color:var(--muted)}
+.dash-msg.err{color:var(--terra-dark)}
+`;
+  const st = document.createElement("style"); st.textContent = css; document.head.appendChild(st);
+
+  // Tambah menu "Dashboard" di navbar (desktop & mobile)
+  const nav = document.querySelector(".nav-links");
+  if(nav && !nav.querySelector('[data-nav="dashboard"]')) nav.insertAdjacentHTML("beforeend", '<a href="#/dashboard" data-nav="dashboard">Dashboard</a>');
+  const mm = document.getElementById("mMenu");
+  if(mm && !mm.querySelector('[href="#/dashboard"]')) mm.insertAdjacentHTML("beforeend", '<a href="#/dashboard">Dashboard</a>');
+
+  const WARNA_HUJAN = "#3D6FA8", WARNA_CERAH = "#C96F4A";
+  const BLN = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
+  const tglPendek = s => { const [y,m,d] = String(s).slice(0,10).split("-"); return Number(d)+" "+BLN[Number(m)-1]; };
+  const angka = n => Number(n).toLocaleString("id-ID");
+  const juta = n => "Rp" + (n/1e6).toLocaleString("id-ID",{maximumFractionDigits:1}) + " jt";
+
+  views.dashboard = () => {
+    setTimeout(muatDashboard, 0);
+    return `
+  <section class="page-head"><div class="wrap">
+    <span class="eyebrow">Ruang admin</span><h1>Dashboard</h1>
+    <p>Stok, penjualan 30 hari terakhir, dan cuaca dalam satu layar. Dari data → informasi → insight → aksi.</p>
+    <span class="dash-note">Data penjualan = simulasi latihan · halaman ini publik (demo)</span>
+  </div></section>
+  <section class="section" style="padding-top:2rem"><div class="wrap" id="dash">
+    <p class="dash-msg">Memuat data dashboard…</p>
+  </div></section>`;
+  };
+
+  async function muatDashboard(){
+    const root = document.getElementById("dash");
+    if(!root) return;
+    if(!sbClient){ root.innerHTML = '<p class="dash-msg err">Dashboard belum terhubung ke Supabase. Isi SUPABASE_URL dan SUPABASE_ANON_KEY.</p>'; return; }
+    try{
+      const [pr, sk, hr, ck, pj, cu] = await Promise.all([
+        sbClient.from("produk").select("slug, nama, kategori"),
+        sbClient.from("stok").select("produk_slug, ukuran, jumlah"),
+        sbClient.from("v_penjualan_harian").select("tanggal, pcs, omzet"),
+        sbClient.from("v_cuaca_kategori").select("cuaca, kategori, pcs_per_hari"),
+        sbClient.from("penjualan").select("produk_slug, qty, kota"),
+        sbClient.from("cuaca_kota").select("waktu, kota, kondisi_cuaca").order("waktu",{ascending:false}).limit(20)
+      ]);
+      for(const r of [pr,sk,hr,ck,pj,cu]) if(r.error) throw r.error;
+      if(!document.body.contains(root)) return;   // pengunjung sudah pindah halaman
+
+      const produk = pr.data, stok = sk.data, harian = hr.data, ck2 = ck.data, jual = pj.data, cuaca = cu.data;
+      const nama = Object.fromEntries(produk.map(p => [p.slug, p.nama]));
+
+      // ---- KPI ----
+      const omzet = harian.reduce((a,r)=>a+Number(r.omzet),0);
+      const pcs = harian.reduce((a,r)=>a+Number(r.pcs),0);
+      const perProduk = {};
+      jual.forEach(r => perProduk[r.produk_slug] = (perProduk[r.produk_slug]||0) + Number(r.qty));
+      const [topSlug, topPcs] = Object.entries(perProduk).sort((a,b)=>b[1]-a[1])[0] || ["-",0];
+      const tipis = stok.filter(s => Number(s.jumlah) <= 3).sort((a,b)=>a.jumlah-b.jumlah || (nama[a.produk_slug]||"").localeCompare(nama[b.produk_slug]||""));
+      const habis = tipis.filter(s => Number(s.jumlah) === 0).length;
+
+      // ---- Insight cuaca × kategori ----
+      const kat = ["Dress","Atasan","Bawahan","Outer"];
+      const nilai = (c,k) => Number((ck2.find(r=>r.cuaca===c && r.kategori===k)||{}).pcs_per_hari || 0);
+      const rasio = kat.map(k => ({k, h:nilai("Hujan",k), c:nilai("Cerah/Berawan",k)}));
+      const naikHujan = [...rasio].sort((a,b)=>(b.h/(b.c||1e-9))-(a.h/(a.c||1e-9)))[0];
+      const naikCerah = [...rasio].sort((a,b)=>(b.c/(b.h||1e-9))-(a.c/(a.h||1e-9)))[0];
+      const kali = (a,b) => b>0 ? (a/b).toLocaleString("id-ID",{maximumFractionDigits:1}) : "∞";
+
+      // ---- Aksi: cuaca terbaru Pontianak ----
+      const ptk = cuaca.find(r => r.kota === "Pontianak") || cuaca[0];
+      const kond = ptk ? String(ptk.kondisi_cuaca||"") : "";
+      const basah = /hujan|gerimis|badai/i.test(kond);
+      const fokus = basah ? naikHujan.k : naikCerah.k;
+      const tipisFokus = tipis.filter(s => (produk.find(p=>p.slug===s.produk_slug)||{}).kategori === fokus);
+      const aksi = ptk
+        ? `Sekarang <b>${esc(kond.toLowerCase())}</b> di ${esc(ptk.kota)}. Tonjolkan <b>${fokus}</b> di beranda & Instagram hari ini.` +
+          (tipisFokus.length ? ` Tapi cek dulu: ${tipisFokus.map(s=>esc(nama[s.produk_slug])+" "+s.ukuran+" sisa "+s.jumlah).join(", ")}.` : ` Stok ${fokus} masih aman.`)
+        : "Belum ada data cuaca terbaru.";
+
+      // ---- Per kota ----
+      const perKota = {};
+      jual.forEach(r => perKota[r.kota] = (perKota[r.kota]||0) + Number(r.qty));
+      const kotaArr = Object.entries(perKota).sort((a,b)=>b[1]-a[1]);
+      const kotaMax = kotaArr.length ? kotaArr[0][1] : 1;
+
+      root.innerHTML = `
+      <div class="kpis">
+        <div class="kpi"><div class="lbl">Omzet 30 hari</div><div class="val">${juta(omzet)}</div><div class="sub">${rp(Math.round(omzet/Math.max(harian.length,1)))} / hari</div></div>
+        <div class="kpi"><div class="lbl">Terjual</div><div class="val">${angka(pcs)} pcs</div><div class="sub">${angka(jual.length)} transaksi</div></div>
+        <div class="kpi"><div class="lbl">Terlaris</div><div class="val" style="font-size:1.25rem">${esc(nama[topSlug]||topSlug)}</div><div class="sub">${angka(topPcs)} pcs</div></div>
+        <div class="kpi"><div class="lbl">Stok menipis</div><div class="val">${tipis.length} ukuran</div><div class="sub">${habis} sudah habis</div></div>
+      </div>
+
+      <div class="dash-grid two">
+        <div class="panel">
+          <h3>Penjualan harian</h3>
+          <p class="hint">Jumlah pcs terjual per hari, 30 hari terakhir. Arahkan kursor ke batang untuk detail.</p>
+          <div class="chart-wrap" id="chHarian"></div>
+          <details class="dash-table"><summary>Lihat sebagai tabel</summary>
+            <div class="tb-wrap"><table class="stok-tb"><thead><tr><th>Tanggal</th><th style="text-align:right">Pcs</th><th style="text-align:right">Omzet</th></tr></thead>
+            <tbody>${harian.map(r=>`<tr><td>${tglPendek(r.tanggal)}</td><td class="n">${r.pcs}</td><td class="n">${rp(Number(r.omzet))}</td></tr>`).join("")}</tbody></table></div>
+          </details>
+        </div>
+        <div class="panel">
+          <h3>Cuaca × Penjualan</h3>
+          <p class="hint">Rata-rata pcs terjual per hari per kota, dipisah menurut cuaca.</p>
+          <div class="legend"><span><i style="background:${WARNA_HUJAN}"></i>Hujan</span><span><i style="background:${WARNA_CERAH}"></i>Cerah/Berawan</span></div>
+          <div class="chart-wrap" id="chCuaca"></div>
+          <div class="insight">💡 <b>Insight:</b> saat hujan, <b>${naikHujan.k}</b> terjual <b>${kali(naikHujan.h,naikHujan.c)}×</b> lebih banyak per hari dibanding saat cerah. Sebaliknya <b>${naikCerah.k}</b> lebih laku saat cerah (${kali(naikCerah.c,naikCerah.h)}×).</div>
+          <div class="aksi"><span class="lbl">Aksi hari ini</span>${aksi}</div>
+        </div>
+      </div>
+
+      <div class="dash-grid two">
+        <div class="panel">
+          <h3>Stok perlu perhatian</h3>
+          <p class="hint">Ukuran dengan sisa 3 pcs atau kurang. Ubah angkanya di Supabase → tabel stok.</p>
+          ${tipis.length ? `<div class="tb-wrap"><table class="stok-tb"><thead><tr><th>Produk</th><th>Ukuran</th><th style="text-align:right">Sisa</th><th>Status</th></tr></thead><tbody>
+            ${tipis.map(s=>`<tr><td>${esc(nama[s.produk_slug]||s.produk_slug)}</td><td>${s.ukuran}</td><td class="n">${s.jumlah}</td><td>${Number(s.jumlah)===0?'<span class="st habis">✕ Habis</span>':'<span class="st tipis">! Menipis</span>'}</td></tr>`).join("")}
+          </tbody></table></div>` : '<p class="dash-msg">Semua stok aman 👍</p>'}
+        </div>
+        <div class="panel">
+          <h3>Pembeli per kota</h3>
+          <p class="hint">Total pcs terjual 30 hari terakhir.</p>
+          ${kotaArr.map(([k,n])=>`<div class="kota-row"><span>${esc(k)}</span><div class="kota-bar"><span style="width:${(n/kotaMax*100).toFixed(1)}%"></span></div><span class="n">${n}</span></div>`).join("")}
+        </div>
+      </div>`;
+
+      gambarHarian(document.getElementById("chHarian"), harian);
+      gambarCuaca(document.getElementById("chCuaca"), rasio);
+    }catch(err){
+      console.error("Dashboard:", err);
+      if(document.body.contains(root)) root.innerHTML = '<p class="dash-msg err">Gagal memuat dashboard. Cek policy SELECT untuk tabel produk, stok, penjualan, dan view-nya.</p>';
+    }
+  }
+
+  // Batang dengan ujung atas membulat 4px, menempel di garis dasar
+  function batang(x, y, w, h, r){
+    r = Math.min(r, w/2, h);
+    if(h <= 0) return "";
+    return `M${x},${y+h}V${y+r}Q${x},${y} ${x+r},${y}H${x+w-r}Q${x+w},${y} ${x+w},${y+r}V${y+h}Z`;
+  }
+
+  function gambarHarian(el, data){
+    const W = 640, H = 220, L = 28, R = 6, T = 10, B = 24;
+    const max = Math.max(...data.map(d=>Number(d.pcs)), 1);
+    const top = Math.ceil(max/5)*5;
+    const n = data.length, step = (W-L-R)/n, bw = Math.max(step-2, 2);
+    const y = v => T + (H-T-B) * (1 - v/top);
+    let g = "";
+    [0, top/2, top].forEach(v => { g += `<line class="grid-l" x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${L-6}" y="${y(v)+3}" text-anchor="end">${v}</text>`; });
+    let bars = "", hits = "", labels = "";
+    data.forEach((d,i) => {
+      const x = L + i*step + (step-bw)/2, v = Number(d.pcs);
+      bars += `<path d="${batang(x, y(v), bw, y(0)-y(v), 4)}" fill="#3E2C23"/>`;
+      hits += `<rect x="${L+i*step}" y="${T}" width="${step}" height="${H-T-B}" fill="transparent" data-i="${i}"/>`;
+      if(i % 7 === 0 || (i === n-1 && (n-1) % 7 > 3)) labels += `<text class="ax" x="${x+bw/2}" y="${H-6}" text-anchor="middle">${tglPendek(d.tanggal)}</text>`;
+    });
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Grafik batang penjualan harian">${g}${bars}${labels}${hits}</svg><div class="tip"></div>`;
+    const tip = el.querySelector(".tip"), svg = el.querySelector("svg");
+    svg.addEventListener("mousemove", e => {
+      const i = e.target.dataset && e.target.dataset.i; if(i === undefined){ tip.classList.remove("on"); return; }
+      const d = data[i], box = el.getBoundingClientRect();
+      tip.innerHTML = `<b>${tglPendek(d.tanggal)}</b> · ${d.pcs} pcs · ${rp(Number(d.omzet))}`;
+      tip.style.left = Math.min(Math.max(e.clientX - box.left, 70), box.width - 70) + "px";
+      tip.style.top = (e.clientY - box.top) + "px";
+      tip.classList.add("on");
+    });
+    svg.addEventListener("mouseleave", () => tip.classList.remove("on"));
+  }
+
+  function gambarCuaca(el, rows){
+    const W = 360, rowH = 46, L = 64, R = 40, H = rows.length*rowH + 6;
+    const max = Math.max(...rows.flatMap(r=>[r.h, r.c]), 0.1);
+    const x = v => (W-L-R) * v/max;
+    let s = "";
+    rows.forEach((r,i) => {
+      const y0 = i*rowH + 4;
+      s += `<text class="ax" style="font-size:12px;fill:#3E2C23" x="0" y="${y0+18}">${r.k}</text>`;
+      [[r.h, WARNA_HUJAN, "Hujan"], [r.c, WARNA_CERAH, "Cerah"]].forEach(([v, col, lbl], j) => {
+        const yy = y0 + j*18, w = Math.max(x(v), 1);
+        s += `<rect x="${L}" y="${yy}" width="${w}" height="14" rx="4" fill="${col}"><title>${r.k} · ${lbl}: ${v.toLocaleString("id-ID")} pcs/hari</title></rect>`;
+        s += `<text class="ax" style="font-size:11px;fill:#6F5E53" x="${L+w+6}" y="${yy+11}">${v.toLocaleString("id-ID",{maximumFractionDigits:2})}</text>`;
+      });
+    });
+    el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Perbandingan penjualan per kategori saat hujan dan cerah">${s}</svg>`;
+  }
+
+  if(currentRoute() === "dashboard") render();
+})();
+
 </script>
 
 </body></html>
