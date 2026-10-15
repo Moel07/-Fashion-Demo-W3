@@ -813,6 +813,21 @@ document.getElementById("burger").addEventListener("click",e=>{
 addEventListener("hashchange",()=>{ render(); window.scrollTo(0,0); });
 updateCount();
 render();
+      /* ===== Stok live dari Supabase (tabel "stok") ===== */
+   async function muatStok(){
+     if(!sbClient) return;
+     try{
+       const { data, error } = await sbClient.from("stok").select("produk_slug, ukuran, jumlah");
+       if(error) throw error;
+       if(!data || !data.length) return;
+       data.forEach(r => {
+         const p = PRODUCTS.find(x => x.slug === r.produk_slug);
+         if(p && r.ukuran in p.sisa) p.sisa[r.ukuran] = Number(r.jumlah);
+       });
+       render();
+     }catch(err){ console.error("Stok:", err); }
+   }
+   muatStok();
 </script>
 
 </body></html>
