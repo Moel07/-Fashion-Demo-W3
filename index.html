@@ -231,6 +231,22 @@ td:first-child{font-family:var(--f-display);font-size:1.15rem}
 .toast.show{transform:translateX(-50%) translateY(0)}
 .demo-note{font-size:.72rem;color:var(--muted);text-align:center;padding-block:.75rem;background:var(--bg)}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ===== Widget cuaca 4 kota (data Supabase dari workflow n8n) ===== */
+.cuaca{background:var(--blush)}
+.cuaca-sub{color:var(--muted);font-size:.9rem}
+.cuaca-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem}
+@media(min-width:900px){.cuaca-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem}}
+.cuaca-card{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:1.1rem 1rem;display:flex;flex-direction:column;gap:.2rem}
+.cuaca-top{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+.cuaca-kota{font-family:var(--f-display);font-size:1.25rem;color:var(--espresso)}
+.cuaca-ikon{font-size:1.6rem;line-height:1}
+.cuaca-suhu{font-family:var(--f-display);font-size:2.4rem;color:var(--ink);font-variant-numeric:tabular-nums;margin-top:.35rem}
+.cuaca-kondisi{font-weight:600;font-size:.92rem;color:var(--espresso)}
+.cuaca-detail{font-size:.8rem;color:var(--muted)}
+.cuaca-tip{margin-top:.6rem;padding-top:.6rem;border-top:1px dashed var(--line);font-size:.8rem;color:var(--terra-dark)}
+.cuaca-status{grid-column:1/-1;font-size:.9rem;color:var(--muted);padding:.5rem 0}
+.cuaca-status.error{color:var(--terra-dark)}
 </style>
 
 <div class="announce">Koleksi terbaru: <b>Kapuas Pagi</b> — stok terbatas per ukuran.</div>
@@ -310,6 +326,79 @@ td:first-child{font-family:var(--f-display);font-size:1.15rem}
 </footer>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+/* ===== Cuaca 4 Kota — baca tabel Supabase "cuaca_kota" (diisi workflow n8n tiap jam) ===== */
+// GANTI dua baris ini: Supabase → Project Settings → API (pakai anon/public key, BUKAN service_role)
+const SUPABASE_URL = "https://XXXXXXXX.supabase.co";
+const SUPABASE_ANON_KEY = "ISI_ANON_KEY_KAMU";
+
+const KOTA_URUTAN = ["Pontianak","Jakarta","Bandung","Surabaya"];
+let sbClient = null;
+try{ if(window.supabase && !SUPABASE_URL.includes("XXXX")) sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); }catch(e){ console.error(e); }
+
+const esc = v => String(v ?? "-").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function ikonCuaca(k=""){
+  k = k.toLowerCase();
+  if(k.includes("badai")) return "⛈️";
+  if(k.includes("hujan")) return "🌧️";
+  if(k.includes("gerimis")) return "🌦️";
+  if(k.includes("kabut")) return "🌫️";
+  if(k.includes("mendung")) return "☁️";
+  if(k.includes("berawan")) return "⛅";
+  if(k.includes("cerah")) return "☀️";
+  return "🌡️";
+}
+function saranOutfit(k="", suhu){
+  k = k.toLowerCase();
+  if(k.includes("hujan")||k.includes("badai")||k.includes("gerimis")) return "Bawa outer, pilih kulot yang cepat kering.";
+  if(suhu >= 31) return "Panas — linen adem paling pas.";
+  if(suhu <= 23) return "Agak sejuk — layering dengan outer tipis.";
+  return "Nyaman untuk kemeja atau dress harian.";
+}
+async function muatCuaca(){
+  const grid = document.getElementById("cuacaGrid"), info = document.getElementById("cuacaUpdate");
+  if(!grid) return; // bukan di halaman beranda
+  if(!sbClient){
+    grid.innerHTML = '<p class="cuaca-status error">Widget cuaca belum terhubung. Isi SUPABASE_URL dan SUPABASE_ANON_KEY di kode.</p>';
+    info.textContent = ""; return;
+  }
+  try{
+    const { data, error } = await sbClient.from("cuaca_kota")
+      .select("waktu, kota, suhu, kelembapan, kondisi_cuaca")
+      .order("waktu", { ascending:false }).limit(50);
+    if(error) throw error;
+    if(!document.body.contains(grid)) return; // pengunjung sudah pindah halaman
+    if(!data || !data.length){
+      grid.innerHTML = '<p class="cuaca-status">Belum ada data cuaca. Jalankan workflow n8n dulu.</p>';
+      info.textContent = ""; return;
+    }
+    const terbaru = {};
+    data.forEach(r => { if(!terbaru[r.kota]) terbaru[r.kota] = r; });
+    const urut = k => { const i = KOTA_URUTAN.indexOf(k); return i < 0 ? 99 : i; };
+    const daftar = Object.values(terbaru).sort((a,b) => urut(a.kota) - urut(b.kota));
+    grid.innerHTML = daftar.map(r => {
+      const suhu = Number(r.suhu);
+      return `<article class="cuaca-card">
+        <div class="cuaca-top"><span class="cuaca-kota">${esc(r.kota)}</span><span class="cuaca-ikon" aria-hidden="true">${ikonCuaca(r.kondisi_cuaca)}</span></div>
+        <div class="cuaca-suhu">${isNaN(suhu) ? "-" : suhu.toFixed(1)}°C</div>
+        <div class="cuaca-kondisi">${esc(r.kondisi_cuaca)}</div>
+        <div class="cuaca-detail">Kelembapan ${esc(r.kelembapan)}%</div>
+        <div class="cuaca-tip">${saranOutfit(r.kondisi_cuaca, suhu)}</div>
+      </article>`;
+    }).join("");
+    const t = new Date(String(data[0].waktu).replace(" ","T"));
+    info.textContent = isNaN(t) ? "" : "Diperbarui " + t.toLocaleString("id-ID",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"}) + " WIB";
+  }catch(err){
+    console.error("Cuaca:", err);
+    if(!document.body.contains(grid)) return;
+    grid.innerHTML = '<p class="cuaca-status error">Gagal memuat data cuaca. Cek URL/key Supabase dan policy SELECT untuk tabel cuaca_kota.</p>';
+    info.textContent = "";
+  }
+}
+setInterval(() => { if(currentRoute()==="home") muatCuaca(); }, 10*60*1000);
+</script>
 
 <script>
 const WA_NUM = "6281234567890";
@@ -509,6 +598,16 @@ views.home = () => {
     </div>
   </section>
 
+  <section class="section cuaca" aria-label="Cuaca hari ini">
+    <div class="wrap">
+      <div class="sec-head">
+        <div><span class="eyebrow">Cuaca hari ini</span><h2>Pakai apa hari ini?</h2></div>
+        <p class="cuaca-sub" id="cuacaUpdate">Memuat data cuaca…</p>
+      </div>
+      <div class="cuaca-grid" id="cuacaGrid"></div>
+    </div>
+  </section>
+
   <section class="cta-band">
     <div class="wrap cta-in">
       <h2>Sekali <em>SOLD OUT,</em> jarang restock. Amankan size lu.</h2>
@@ -675,6 +774,7 @@ function render(){
   document.getElementById("burger").setAttribute("aria-expanded","false");
   if(r==="produk") bindPdp(parts[1]);
   if(r==="kontak") bindKontak();
+  if(r==="home") muatCuaca();
 }
 function bindPdp(slug){
   const p = PRODUCTS.find(x=>x.slug===slug); if(!p) return;
